@@ -1,0 +1,9 @@
+{
+    "theme": "dark",
+    "respectGitignore": false,
+    "projects": {
+        "/home/worker/workspace": {
+            "hasTrustDialogAccepted": true
+        }
+    }
+}

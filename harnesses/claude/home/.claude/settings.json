@@ -1,0 +1,18 @@
+{
+    "skipDangerousModePermissionPrompt": true,
+    "spinnerTipsEnabled": false,
+    "spinnerVerbs": {
+        "mode": "replace",
+        "verbs": ["Working"]
+    },
+    "statusLine": {
+        "type": "command",
+        "command": "/bin/bash /home/worker/.claude/statusline.sh",
+        "refreshInterval": 30
+    },
+    "switchModelsOnFlag": false,
+    "attribution": {
+        "commits": false,
+        "pullRequests": false
+    }
+}

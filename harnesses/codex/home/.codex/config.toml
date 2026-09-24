@@ -1,0 +1,5 @@
+[projects."/home/worker/workspace"]
+trust_level = "trusted"
+
+[tui]
+status_line = ["model-with-reasoning", "context-remaining", "five-hour-limit"]
