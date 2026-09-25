@@ -56,7 +56,7 @@ Both options may also be given after the command.
 In both modes, the agent's global instructions tell it to read `AGENTS.md` from the workspace root, if present.
 
 ```text
-karas run [-n WORKER] [--workspace PATH] [harness] [workload]
+karas run [-n WORKER] [--workspace PATH] [ENGINE OPTIONS] [harness] [workload]
 ```
 
 | Option | Default | Description |
@@ -66,9 +66,22 @@ karas run [-n WORKER] [--workspace PATH] [harness] [workload]
 | `harness` | `opencode` | `claude`, `codex`, `copilot`, `gemini`, `junie`, or `opencode`. |
 | `workload` | `generic` | `generic`, `cpp`, `android`, or custom. |
 
+These engine options are forwarded to the engine's `run` command and may be repeated:
+
+| Option | Description |
+|---|---|
+| `-e`, `--env VAR[=VALUE]` | Set an environment variable (without a value, it is taken from the host). |
+| `--env-file FILE` | Read environment variables from a file. |
+| `-v`, `--volume SRC:DST[:OPTS]` | Bind mount a host path or named volume. |
+| `-p`, `--publish [IP:]HOST:CONTAINER` | Publish a container port to the host. |
+| `--network NETWORK` | Connect the container to a network. |
+| `--add-host HOST:IP` | Add a custom host-to-IP mapping. |
+| `--device DEVICE` | Add a host device. |
+| `--gpus GPUS` | GPU devices to add (Docker only). |
+
 Extra arguments are taken from environment variables:
 
-- **`KARAS_ENGINE_ARGS`**: Forwarded to the engine's `run` (e.g. `-e PORT=80 -p 8080:80`).
+- **`KARAS_ENGINE_ARGS`**: Forwarded to the engine's `run`, for options not listed above (e.g. `--memory 4g --cpus 2`).
 - **`KARAS_HARNESS_ARGS`**: Forwarded to the agent (e.g. `--model haiku`).
 
 Missing images and volumes of built-in workloads are built on demand. Custom workloads must be built first with [`build`](#build). Existing images are reused even if outdated; use `build --rm` to refresh them.
@@ -82,8 +95,11 @@ karas run
 # Persistent worker 'alice' with Claude and the C++ workload on a specific folder
 karas run -n alice --workspace /path/to/project claude cpp
 
-# Pass flags to the engine and to the agent
-KARAS_ENGINE_ARGS="-e PORT=80 -p 8080:80" KARAS_HARNESS_ARGS="--model haiku" karas run claude
+# Set a variable, publish a port and mount an extra folder read-only
+karas run -e PORT=80 -p 8080:80 -v /path/to/data:/data:ro claude
+
+# Pass other flags to the engine and to the agent
+KARAS_ENGINE_ARGS="--memory 4g" KARAS_HARNESS_ARGS="--model haiku" karas run claude
 ```
 
 On Windows (`cmd`), set the variables first: `set "KARAS_HARNESS_ARGS=--model haiku"`.

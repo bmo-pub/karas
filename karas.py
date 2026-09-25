@@ -30,6 +30,16 @@ WORKER_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 WORKLOAD_NAME = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 HARNESS_NAME = re.compile(r"^[a-z0-9]+(?:[._][a-z0-9]+)*$")
 GLOB_CHARS = set("*?[")
+FORWARDED_RUN_OPTIONS = (
+    (("-e", "--env"), "VAR[=VALUE]", "set an environment variable"),
+    (("--env-file",), "FILE", "read environment variables from a file"),
+    (("-v", "--volume"), "SRC:DST[:OPTS]", "bind mount a host path or volume"),
+    (("-p", "--publish"), "[IP:]HOST:CONTAINER", "publish a container port to the host"),
+    (("--network",), "NETWORK", "connect the container to a network"),
+    (("--add-host",), "HOST:IP", "add a custom host-to-IP mapping"),
+    (("--device",), "DEVICE", "add a host device"),
+    (("--gpus",), "GPUS", "GPU devices to add (docker only)"),
+)
 
 BASE_IMAGE = "karas/base"
 WORKLOAD_IMAGE_PREFIX = "karas/workload-"
@@ -346,6 +356,18 @@ def cmd_build(engine, args):
                 builder.build_harness_image(harness, mode, workload, context)
 
 
+def forwarded_option_dest(flags):
+    return flags[-1].lstrip("-").replace("-", "_")
+
+
+def forwarded_run_args(args):
+    forwarded = []
+    for flags, _, _ in FORWARDED_RUN_OPTIONS:
+        for value in getattr(args, forwarded_option_dest(flags)):
+            forwarded += [flags[-1], value]
+    return forwarded
+
+
 def cmd_run(engine, args):
     harness, workload, worker = args.harness, args.workload, args.worker
     validate("harness", [harness], harnesses())
@@ -391,7 +413,8 @@ def cmd_run(engine, args):
         return shlex.split(os.environ.get(var, ""))
 
     return engine.run(
-        "run", "--rm", "--pull", "never", *engine.userns_args(), *tty_args, "--name", name, *labels, *volume_args, *env_args("KARAS_ENGINE_ARGS"),
+        "run", "--rm", "--pull", "never", *engine.userns_args(), *tty_args, "--name", name, *labels, *volume_args,
+        *forwarded_run_args(args), *env_args("KARAS_ENGINE_ARGS"),
         image, *env_args("KARAS_HARNESS_ARGS"),
         env=context.environ, check=False,
     )
@@ -529,6 +552,10 @@ def build_parser():
     run.add_argument("workload", nargs="?", default=DEFAULT_WORKLOAD, help=f"workload (default: {DEFAULT_WORKLOAD})")
     run.add_argument("-n", "--name", "--worker", dest="worker", help="persistent worker name (default: amnesic)")
     run.add_argument("--workspace", help="host folder mounted as the workspace (default: cwd)")
+    forwarded = run.add_argument_group("engine options", "forwarded to the engine's run command (repeatable)")
+    for flags, metavar, help_text in FORWARDED_RUN_OPTIONS:
+        forwarded.add_argument(*flags, dest=forwarded_option_dest(flags), action="append", default=[],
+                               metavar=metavar, help=help_text)
 
     build = commands.add_parser("build", parents=[engine_options],
                                 help="build workload/harness images and install harnesses")
