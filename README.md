@@ -5,7 +5,7 @@
 
 *Run AI coding assistants in isolated containers*
 
-[Quickstart](#quickstart) • [Usage](#usage) • [Credentials](#credentials) • [Workloads](#workloads) • [Build](#build)
+[Quickstart](#quickstart) • [Usage](#usage) • [Credentials](#credentials) • [Secrets](#secrets) • [Workloads](#workloads) • [Build](#build)
 
 </div>
 
@@ -63,6 +63,8 @@ karas run [-n WORKER] [--workspace PATH] [ENGINE OPTIONS] [harness] [workload]
 |---|---|---|
 | `-n`, `--name`, `--worker` | — | Run as a persistent worker with this name. Without it, the run is amnesic. |
 | `--workspace` | current directory | Host folder mounted into `/home/worker/workspace`. |
+| `-s`, `--secrets` | — | `GROUP[=PREFIX]`: [Secrets](#secrets) group to pass as environment variables (default prefix `SECRET_`). Repeatable. |
+| `--secrets-db` | `~/.karas/secrets.kdbx` | KeePassXC database used by `--secrets`. |
 | `harness` | `opencode` | `claude`, `codex`, `copilot`, `gemini`, `junie`, or `opencode`. |
 | `workload` | `generic` | `generic`, `cpp`, `android`, or custom. |
 
@@ -98,6 +100,9 @@ karas run -n alice --workspace /path/to/project claude cpp
 # Set a variable, publish a port and mount an extra folder read-only
 karas run -e PORT=80 -p 8080:80 -v /path/to/data:/data:ro claude
 
+# Worker 'alice' with the shared secrets (SECRET_*) plus its own, passed with exact names
+karas run -n alice -s karas/shared -s karas/alice= claude
+
 # Pass other flags to the engine and to the agent
 KARAS_ENGINE_ARGS="--memory 4g" KARAS_HARNESS_ARGS="--model haiku" karas run claude
 ```
@@ -126,6 +131,43 @@ Since credential files are owner-only, the container's `worker` user (UID 1000) 
 - **Rootless Podman on Linux**: Handled automatically with `--userns=keep-id:uid=1000,gid=1000` (Podman 4.3+).
 - **Docker on Linux**: Works when your host UID is 1000.
 - **Docker Desktop, Podman machine (macOS/Windows)**: Handled by the engine's file sharing.
+
+## Secrets
+
+Secrets such as API tokens are kept in an encrypted [KeePassXC](https://keepassxc.org) database on the host. They are passed to the agent as environment variables, for both amnesic and persistent runs. Manage them with the KeePassXC app. Karas reads them with `keepassxc-cli`, which ships with KeePassXC and must be on your `PATH`.
+
+Each entry becomes one variable: its name is a prefix plus the entry's **Title**, and its value is the entry's **Password**. Use groups to organize entries into sets, for example:
+
+```text
+karas/
+├── shared/    GITHUB_TOKEN, NPM_TOKEN
+└── alice/     GITHUB_TOKEN, AWS_SECRET_ACCESS_KEY
+```
+
+Select groups with `-s`/`--secrets GROUP[=PREFIX]` (repeatable). Group paths are relative to the database root. Only entries placed directly in a group are included, not those in its subgroups.
+
+The default prefix is `SECRET_`, so a secret can't accidentally override variables like `PATH` or the harness's own settings. Add `=PREFIX` to choose another prefix, or a bare `=` to use exact names:
+
+| Option | Variable for `GITHUB_TOKEN` |
+|---|---|
+| `-s karas/shared` | `SECRET_GITHUB_TOKEN` |
+| `-s karas/shared=CI_` | `CI_GITHUB_TOKEN` |
+| `-s karas/shared=` | `GITHUB_TOKEN` |
+
+If two groups produce the same variable name, the later group wins:
+
+```bash
+karas run -s karas/shared -s karas/alice= claude
+```
+
+`keepassxc-cli` asks for the database password on every run that uses `--secrets`. Decrypted values are kept only in memory and are never written to the host disk.
+
+Use `--secrets-db PATH` to use a database other than the default `~/.karas/secrets.kdbx`.
+
+To use a key file, set `KARAS_SECRETS_KEYFILE` to its path.
+
+> [!NOTE]
+> The container engine stores environment variables in the container's configuration. Anyone who can run `docker inspect` on the host can read them while the container exists.
 
 ## Workloads
 

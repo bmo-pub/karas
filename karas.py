@@ -2,6 +2,7 @@
 """Karas: run AI coding assistants in isolated containers"""
 
 import argparse
+import csv
 import fnmatch
 import getpass
 import importlib.util
@@ -22,6 +23,9 @@ WORKLOADS_DIR = ROOT / "workloads"
 BASE_DIR = WORKLOADS_DIR / ".base"
 SHARED_DIR = HARNESSES_DIR / ".shared"
 CREDENTIALS_DIR = Path.home() / ".karas" / "credentials"
+DEFAULT_SECRETS_DB = Path.home() / ".karas" / "secrets.kdbx"
+DEFAULT_SECRETS_PREFIX = "SECRET_"
+ENV_VAR_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 MODES = ("generic", "amnesic")
 DEFAULT_HARNESS = "opencode"
@@ -316,6 +320,46 @@ class Builder:
         self._build_image(harness_image(harness, mode, workload), args)
 
 
+def normalize_group(group):
+    return "/".join(part for part in group.replace("\\", "/").split("/") if part)
+
+
+def export_secrets_db(database, key_file):
+    command = ["keepassxc-cli", "export", "--format", "csv"]
+    if key_file:
+        command += ["--key-file", key_file]
+    command.append(str(database))
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, text=True, encoding="utf-8")
+    except FileNotFoundError:
+        raise KarasError("keepassxc-cli not found in PATH")
+    if result.returncode != 0:
+        raise KarasError(f"cannot open {database}")
+    return list(csv.DictReader(result.stdout.splitlines()))
+
+
+def load_secrets(database, groups):
+    database = Path(database).expanduser()
+    if not database.is_file():
+        raise KarasError(f"secrets database {database} not found")
+    entries = export_secrets_db(database, os.environ.get("KARAS_SECRETS_KEYFILE"))
+    values = {}
+    for spec in groups:
+        group, separator, prefix = spec.rpartition("=")
+        if not separator:
+            group, prefix = spec, DEFAULT_SECRETS_PREFIX
+        wanted = normalize_group(group)
+        matched = [e for e in entries if wanted in (e["Group"], e["Group"].partition("/")[2])]
+        if not matched:
+            raise KarasError(f"secrets group '{group}' is empty or not found in {database}")
+        for entry in matched:
+            name = prefix + entry["Title"]
+            if not ENV_VAR_NAME.match(name):
+                raise KarasError(f"secret '{group}/{entry['Title']}' gives an invalid environment variable name '{name}'")
+            values[name] = entry["Password"]
+    return values
+
+
 def validate(kind, names, known):
     unknown = [name for name in names if name not in known]
     if unknown:
@@ -392,6 +436,8 @@ def cmd_run(engine, args):
     auth = getattr(module, "auth", None)
     if auth and worker is None:
         auth(context)
+    secret_values = load_secrets(args.secrets_db, args.secrets) if args.secrets else {}
+    secret_args = [arg for name in secret_values for arg in ("-e", name)]
 
     workspace = Path(args.workspace or Path.cwd()).resolve()
     tty_args = ["-it"] if sys.stdin.isatty() and sys.stdout.isatty() else ["-i"]
@@ -414,9 +460,9 @@ def cmd_run(engine, args):
 
     return engine.run(
         "run", "--rm", "--pull", "never", *engine.userns_args(), *tty_args, "--name", name, *labels, *volume_args,
-        *forwarded_run_args(args), *env_args("KARAS_ENGINE_ARGS"),
+        *secret_args, *forwarded_run_args(args), *env_args("KARAS_ENGINE_ARGS"),
         image, *env_args("KARAS_HARNESS_ARGS"),
-        env=context.environ, check=False,
+        env={**context.environ, **secret_values}, check=False,
     )
 
 
@@ -552,6 +598,11 @@ def build_parser():
     run.add_argument("workload", nargs="?", default=DEFAULT_WORKLOAD, help=f"workload (default: {DEFAULT_WORKLOAD})")
     run.add_argument("-n", "--name", "--worker", dest="worker", help="persistent worker name (default: amnesic)")
     run.add_argument("--workspace", help="host folder mounted as the workspace (default: cwd)")
+    run.add_argument("-s", "--secrets", action="append", default=[], metavar="GROUP[=PREFIX]",
+                     help=f"KeePassXC group whose entries become environment variables named PREFIX+title "
+                          f"(default prefix: {DEFAULT_SECRETS_PREFIX}; empty for exact names; repeatable)")
+    run.add_argument("--secrets-db", default=str(DEFAULT_SECRETS_DB), metavar="PATH",
+                     help=f"KeePassXC database for --secrets (default: {DEFAULT_SECRETS_DB})")
     forwarded = run.add_argument_group("engine options", "forwarded to the engine's run command (repeatable)")
     for flags, metavar, help_text in FORWARDED_RUN_OPTIONS:
         forwarded.add_argument(*flags, dest=forwarded_option_dest(flags), action="append", default=[],

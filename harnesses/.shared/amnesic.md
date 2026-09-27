@@ -1,6 +1,7 @@
 ## Environment
 - The agent runs in a amnesic (stateless) Docker container as a non-root user.
 - The workspace directory is mounted from the host and is the only writable, persistent storage available to the agent.
+- Secrets are available as `SECRET_*` environment variables.
 - Repositories (Git, SVN, etc.) may exist in the workspace, but treat them as ordinary files only. Ignore version control metadata, and do not perform version control operations. The user will handle those manually from the host.
 
 ## Operating Guidelines
