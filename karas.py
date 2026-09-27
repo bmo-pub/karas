@@ -37,6 +37,8 @@ FORWARDED_RUN_OPTIONS = (
     (("-e", "--env"), "VAR[=VALUE]", "set an environment variable"),
     (("--env-file",), "FILE", "read environment variables from a file"),
     (("-v", "--volume"), "SRC:DST[:OPTS]", "bind mount a host path or volume"),
+    (("--mount",), "type=TYPE,src=SRC,dst=DST[,...]", "attach a filesystem mount (bind, volume, tmpfs, ...)"),
+    (("--tmpfs",), "DST[:OPTS]", "mount a tmpfs directory"),
     (("-p", "--publish"), "[IP:]HOST:CONTAINER", "publish a container port to the host"),
     (("--network",), "NETWORK", "connect the container to a network"),
     (("--add-host",), "HOST:IP", "add a custom host-to-IP mapping"),

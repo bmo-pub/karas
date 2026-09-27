@@ -75,6 +75,8 @@ These engine options are forwarded to the engine's `run` command and may be repe
 | `-e`, `--env VAR[=VALUE]` | Set an environment variable (without a value, it is taken from the host). |
 | `--env-file FILE` | Read environment variables from a file. |
 | `-v`, `--volume SRC:DST[:OPTS]` | Bind mount a host path or named volume. |
+| `--mount type=TYPE,src=SRC,dst=DST[,...]` | Attach a filesystem mount (bind, volume, tmpfs, ...). |
+| `--tmpfs DST[:OPTS]` | Mount a tmpfs directory. |
 | `-p`, `--publish [IP:]HOST:CONTAINER` | Publish a container port to the host. |
 | `--network NETWORK` | Connect the container to a network. |
 | `--add-host HOST:IP` | Add a custom host-to-IP mapping. |
