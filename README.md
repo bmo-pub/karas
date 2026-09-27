@@ -111,32 +111,27 @@ On Windows (`cmd`), set the variables first: `set "KARAS_HARNESS_ARGS=--model ha
 
 ## Credentials
 
-Host credentials are used **only for amnesic runs**. In persistent runs, you log in interactively and credentials stay in the worker's named volume.
+How a harness gets its credentials depends on whether it uses a login or an API token.
 
-For amnesic runs, credentials are cached in `~/.karas/credentials/<harness>` (`%USERPROFILE%\.karas\credentials\<harness>` on Windows):
+**Login-based harnesses** (Claude, Codex, Gemini, OpenCode): log in interactively on the first run. In amnesic runs, the login is saved in `~/.karas/credentials/<harness>` (`%USERPROFILE%\.karas\credentials\<harness>` on Windows) and reused by later runs. In persistent runs, it stays in the worker's volume.
 
-| Harness | Credential File | First Run | Container Mapping |
-|---|---|---|---|
-| **Claude** | `claude` | Log in interactively | `/home/worker/.claude/.credentials.json` |
-| **Codex** | `codex` | Log in interactively | `/home/worker/.codex/auth.json` |
-| **Copilot** | `copilot` | Paste GitHub token when prompted | `$COPILOT_GITHUB_TOKEN` |
-| **Gemini** | `gemini` | Log in interactively | `/home/worker/.gemini/oauth_creds.json` |
-| **Junie** | `junie` or `openrouter` | Paste key when prompted | `$JUNIE_API_KEY` or `$JUNIE_OPENROUTER_API_KEY` |
-| **OpenCode** | `opencode` | Log in interactively | `/home/worker/.opencode/data/auth.json` |
+**Token-based harnesses** (Copilot, Junie): store the token in the [Secrets](#secrets) database, in a group named `karas/<harness>`. Karas passes it to every run of that harness, amnesic or persistent:
 
-Pasted tokens are hidden and saved with owner-only permissions. For Junie, press Enter at the Junie prompt to use an OpenRouter key instead. In non-interactive sessions, create the credential file yourself.
+| Harness | Group | Entry Title |
+|---|---|---|
+| **Copilot** | `karas/copilot` | `COPILOT_GITHUB_TOKEN` |
+| **Junie** | `karas/junie` | `JUNIE_API_KEY` or `JUNIE_OPENROUTER_API_KEY` |
 
-Since credential files are owner-only, the container's `worker` user (UID 1000) must map to your host user:
+A login-based harness also uses its `karas/<harness>` group if its login can't be saved.
 
-- **Rootless Podman on Linux**: Handled automatically with `--userns=keep-id:uid=1000,gid=1000` (Podman 4.3+).
-- **Docker on Linux**: Works when your host UID is 1000.
-- **Docker Desktop, Podman machine (macOS/Windows)**: Handled by the engine's file sharing.
+> [!NOTE]
+> Saved logins are readable only by you. With Docker on Linux, the container can read them only if your host UID is 1000, the UID of the container's `worker` user.
 
 ## Secrets
 
-Secrets such as API tokens are kept in an encrypted [KeePassXC](https://keepassxc.org) database on the host. They are passed to the agent as environment variables, for both amnesic and persistent runs. Manage them with the KeePassXC app. Karas reads them with `keepassxc-cli`, which ships with KeePassXC and must be on your `PATH`.
+Keep API tokens and other secrets in a [KeePassXC](https://keepassxc.org) database, `~/.karas/secrets.kdbx` by default, and pass them to the agent as environment variables. Karas needs `keepassxc-cli`, which comes with KeePassXC, on your `PATH`.
 
-Each entry becomes one variable: its name is a prefix plus the entry's **Title**, and its value is the entry's **Password**. Use groups to organize entries into sets, for example:
+Each entry becomes a variable named after its **Title**, with its **Password** as the value. Organize entries into groups, for example:
 
 ```text
 karas/
@@ -144,9 +139,7 @@ karas/
 └── alice/     GITHUB_TOKEN, AWS_SECRET_ACCESS_KEY
 ```
 
-Select groups with `-s`/`--secrets GROUP[=PREFIX]` (repeatable). Group paths are relative to the database root. Only entries placed directly in a group are included, not those in its subgroups.
-
-The default prefix is `SECRET_`, so a secret can't accidentally override variables like `PATH` or the harness's own settings. Add `=PREFIX` to choose another prefix, or a bare `=` to use exact names:
+Pass a group with `-s`/`--secrets` (repeatable). Only entries directly in that group are included, not those in its subgroups. Variable names get the `SECRET_` prefix by default, so a secret can't accidentally replace variables like `PATH`. Choose another prefix after `=`, or leave it empty for exact names:
 
 | Option | Variable for `GITHUB_TOKEN` |
 |---|---|
@@ -154,17 +147,7 @@ The default prefix is `SECRET_`, so a secret can't accidentally override variabl
 | `-s karas/shared=CI_` | `CI_GITHUB_TOKEN` |
 | `-s karas/shared=` | `GITHUB_TOKEN` |
 
-If two groups produce the same variable name, the later group wins:
-
-```bash
-karas run -s karas/shared -s karas/alice= claude
-```
-
-`keepassxc-cli` asks for the database password on every run that uses `--secrets`. Decrypted values are kept only in memory and are never written to the host disk.
-
-Use `--secrets-db PATH` to use a database other than the default `~/.karas/secrets.kdbx`.
-
-To use a key file, set `KARAS_SECRETS_KEYFILE` to its path.
+To use another database, pass `--secrets-db PATH`. To unlock it with a key file, set `KARAS_SECRETS_KEYFILE` to the key file's path.
 
 > [!NOTE]
 > The container engine stores environment variables in the container's configuration. Anyone who can run `docker inspect` on the host can read them while the container exists.

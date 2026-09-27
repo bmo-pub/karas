@@ -4,7 +4,6 @@
 import argparse
 import csv
 import fnmatch
-import getpass
 import importlib.util
 import os
 import re
@@ -81,6 +80,10 @@ def harness_image(harness, mode, workload):
 
 def harness_volume(harness):
     return f"{HARNESS_VOLUME_PREFIX}{harness}"
+
+
+def harness_secrets_group(harness):
+    return f"karas/{harness}"
 
 
 def worker_prefix(worker):
@@ -218,7 +221,6 @@ class HarnessContext:
         self.engine = engine
         self.harness = harness
         self.volume = harness_volume(harness)
-        self.environ = {}
         self.run_args = []
 
     def npm_install(self, package, args=()):
@@ -231,40 +233,17 @@ class HarnessContext:
             BASE_IMAGE, "npm", "i", "-g", package,
         )
 
-    def credential_path(self, name):
-        return CREDENTIALS_DIR / name
-
-    def _write_credential(self, name, content):
-        CREDENTIALS_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd = os.open(self.credential_path(name), os.O_WRONLY | os.O_CREAT | (os.O_TRUNC if content else 0), 0o600)
-        with os.fdopen(fd, "w") as file:
-            file.write(content)
-
     def mount_credential(self, name, container_path):
-        if not self.engine.dry_run:
-            self._write_credential(name, "")
-        self.run_args += ["-v", f"{self.credential_path(name)}:{container_path}:z"]
-
-    def read_credential(self, name, ask=None):
-        path = self.credential_path(name)
-        if path.exists():
-            return path.read_text().strip()
-        if ask:
-            return self.ask_credential(name, ask)
-
-    def ask_credential(self, name, description):
+        path = CREDENTIALS_DIR / name
         if not self.engine.dry_run:
             try:
-                value = getpass.getpass(f"{description} (saved to {self.credential_path(name)}): ").strip()
-                if value:
-                    self._write_credential(name, value + "\n")
-                    return value
-            except EOFError:
-                pass
-
-    def env(self, var, value):
-        self.environ[var] = value
-        self.run_args += ["-e", var]
+                CREDENTIALS_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+                os.close(os.open(path, os.O_WRONLY | os.O_CREAT, 0o600))
+            except OSError as error:
+                print(f"karas: cannot create credential file {path}: {error.strerror}", file=sys.stderr)
+                return False
+        self.run_args += ["-v", f"{path}:{container_path}:z"]
+        return True
 
 
 class Builder:
@@ -320,11 +299,8 @@ class Builder:
         self._build_image(harness_image(harness, mode, workload), args)
 
 
-def normalize_group(group):
-    return "/".join(part for part in group.replace("\\", "/").split("/") if part)
-
-
-def export_secrets_db(database, key_file):
+def read_secrets_db(database):
+    key_file = os.environ.get("KARAS_SECRETS_KEYFILE")
     command = ["keepassxc-cli", "export", "--format", "csv"]
     if key_file:
         command += ["--key-file", key_file]
@@ -338,25 +314,29 @@ def export_secrets_db(database, key_file):
     return list(csv.DictReader(result.stdout.splitlines()))
 
 
-def load_secrets(database, groups):
-    database = Path(database).expanduser()
-    if not database.is_file():
-        raise KarasError(f"secrets database {database} not found")
-    entries = export_secrets_db(database, os.environ.get("KARAS_SECRETS_KEYFILE"))
+def group_secrets(entries, group, prefix):
+    wanted = "/".join(part for part in group.replace("\\", "/").split("/") if part)
+    values = {}
+    for entry in entries:
+        if wanted not in (entry["Group"], entry["Group"].partition("/")[2]):
+            continue
+        name = prefix + entry["Title"]
+        if not ENV_VAR_NAME.match(name):
+            raise KarasError(f"secret '{group}/{entry['Title']}' gives an invalid environment variable name '{name}'")
+        values[name] = entry["Password"]
+    return values
+
+
+def selected_secrets(entries, groups):
     values = {}
     for spec in groups:
         group, separator, prefix = spec.rpartition("=")
         if not separator:
             group, prefix = spec, DEFAULT_SECRETS_PREFIX
-        wanted = normalize_group(group)
-        matched = [e for e in entries if wanted in (e["Group"], e["Group"].partition("/")[2])]
+        matched = group_secrets(entries, group, prefix)
         if not matched:
-            raise KarasError(f"secrets group '{group}' is empty or not found in {database}")
-        for entry in matched:
-            name = prefix + entry["Title"]
-            if not ENV_VAR_NAME.match(name):
-                raise KarasError(f"secret '{group}/{entry['Title']}' gives an invalid environment variable name '{name}'")
-            values[name] = entry["Password"]
+            raise KarasError(f"secrets group '{group}' is empty or not found")
+        values.update(matched)
     return values
 
 
@@ -432,11 +412,14 @@ def cmd_run(engine, args):
     else:
         builder.install_harness(harness)
 
+    secrets_db = Path(args.secrets_db).expanduser()
     context = HarnessContext(engine, harness)
     auth = getattr(module, "auth", None)
-    if auth and worker is None:
-        auth(context)
-    secret_values = load_secrets(args.secrets_db, args.secrets) if args.secrets else {}
+    needs_harness_secrets = not auth or (worker is None and not auth(context))
+    use_harness_secrets = needs_harness_secrets and secrets_db.is_file()
+    entries = read_secrets_db(secrets_db) if args.secrets or use_harness_secrets else []
+    harness_secrets = group_secrets(entries, harness_secrets_group(harness), "") if use_harness_secrets else {}
+    secret_values = {**harness_secrets, **selected_secrets(entries, args.secrets)}
     secret_args = [arg for name in secret_values for arg in ("-e", name)]
 
     workspace = Path(args.workspace or Path.cwd()).resolve()
@@ -462,7 +445,7 @@ def cmd_run(engine, args):
         "run", "--rm", "--pull", "never", *engine.userns_args(), *tty_args, "--name", name, *labels, *volume_args,
         *secret_args, *forwarded_run_args(args), *env_args("KARAS_ENGINE_ARGS"),
         image, *env_args("KARAS_HARNESS_ARGS"),
-        env={**context.environ, **secret_values}, check=False,
+        env=secret_values, check=False,
     )
 
 
