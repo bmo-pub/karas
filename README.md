@@ -88,7 +88,7 @@ Extra arguments are taken from environment variables:
 - **`KARAS_ENGINE_ARGS`**: Forwarded to the engine's `run`, for options not listed above (e.g. `--memory 4g --cpus 2`).
 - **`KARAS_HARNESS_ARGS`**: Forwarded to the agent (e.g. `--model haiku`).
 
-Missing images and volumes of built-in workloads are built on demand. Custom workloads must be built first with [`build`](#build). Existing images are reused even if outdated; use `build --rm` to refresh them.
+Missing images and volumes of built-in workloads are built on demand. Custom workloads must be built first with [`build`](#build). Existing images are reused even if outdated; use `build --rm` to reinstall harnesses and `build --rmi` to rebuild images.
 
 **Examples**:
 
@@ -185,17 +185,19 @@ Workloads can also live outside this repository; see [Build](#build).
 ## Build
 
 ```text
-karas build [--rm] [harness] [workload[:PATH]]
+karas build [--rm] [--rmi] [harness] [workload[:PATH]]
 ```
 
 - **`harness`**: Harness name or glob pattern. Default: `*` (all harnesses).
 - **`workload`**: Workload name or glob pattern over built-in workloads. Default: `generic`. Use `name:PATH` to build a custom workload from the `Dockerfile` in `PATH`.
-- **`--rm`**: Reinstall the selected harnesses (updates the agent CLI) and rebuild base, workload, and harness images without cache.
+- **`--rm`**: Reinstall the selected harnesses (updates the agent CLI).
+- **`--rmi`**: Rebuild base, workload, and harness images without cache.
 
 ```bash
 karas build                          # all harnesses for the generic workload
 karas build '*' '*'                  # all harnesses x all built-in workloads
-karas build claude cpp --rm          # update Claude Code and refresh the C++ toolchain
+karas build claude --rm              # update Claude Code
+karas build claude cpp --rmi         # refresh the C++ toolchain
 karas build '*' myworkload:.         # custom workload from ./Dockerfile
 karas build '*' myworkload:/path/dir # custom workload from another folder
 ```

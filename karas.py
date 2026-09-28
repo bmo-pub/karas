@@ -249,8 +249,9 @@ class HarnessContext:
 
 
 class Builder:
-    def __init__(self, engine, rebuild=False):
+    def __init__(self, engine, reinstall=False, rebuild=False):
         self.engine = engine
+        self.reinstall = reinstall
         self.rebuild = rebuild
         self.built_images = set()
         self.installed_harnesses = set()
@@ -282,7 +283,7 @@ class Builder:
         if not hasattr(module, "install"):
             return
         if self.engine.exists("volume", volume):
-            if not self.rebuild:
+            if not self.reinstall:
                 return
             self.engine.run("volume", "rm", volume)
         self.build_base()
@@ -375,7 +376,7 @@ def cmd_build(engine, args):
         selected_workloads = [(name, WORKLOADS_DIR / name) for name in matched]
     else:
         selected_workloads = [resolve_workload(args.workload)]
-    builder = Builder(engine, args.rebuild)
+    builder = Builder(engine, args.reinstall, args.rebuild)
     for harness in selected_harnesses:
         for workload, context in selected_workloads:
             for mode in MODES:
@@ -598,8 +599,9 @@ def build_parser():
     build.add_argument("harness", nargs="?", default="*", help="harness name or glob (default: *)")
     build.add_argument("workload", nargs="?", default=DEFAULT_WORKLOAD,
                        help=f"workload, NAME:PATH for a custom one, or * for all built-in (default: {DEFAULT_WORKLOAD})")
-    build.add_argument("--rm", dest="rebuild", action="store_true",
-                       help="reinstall harnesses and rebuild all selected images without cache")
+    build.add_argument("--rm", dest="reinstall", action="store_true", help="reinstall selected harnesses")
+    build.add_argument("--rmi", dest="rebuild", action="store_true",
+                       help="rebuild all selected images without cache")
 
     commands.add_parser("ls", parents=[engine_options], help="list images and harness install volumes")
     commands.add_parser("ps", parents=[engine_options], help="list workers and their status")
