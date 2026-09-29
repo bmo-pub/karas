@@ -5,6 +5,7 @@ import argparse
 import csv
 import fnmatch
 import importlib.util
+import io
 import os
 import re
 import secrets
@@ -315,7 +316,7 @@ def read_secrets_db(database):
         raise KarasError("keepassxc-cli not found in PATH")
     if result.returncode != 0:
         raise KarasError(f"cannot open {database}")
-    return list(csv.DictReader(result.stdout.splitlines()))
+    return list(csv.DictReader(io.StringIO(result.stdout, newline="")))
 
 
 def group_secrets(entries, group, prefix):
