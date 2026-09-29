@@ -249,10 +249,11 @@ class HarnessContext:
 
 
 class Builder:
-    def __init__(self, engine, reinstall=False, rebuild=False):
+    def __init__(self, engine, reinstall=False, refresh=False, no_cache=False):
         self.engine = engine
         self.reinstall = reinstall
-        self.rebuild = rebuild
+        self.refresh = refresh
+        self.no_cache = no_cache
         self.built_images = set()
         self.installed_harnesses = set()
 
@@ -260,10 +261,10 @@ class Builder:
         if tag in self.built_images:
             return
         self.built_images.add(tag)
-        if not self.rebuild and self.engine.exists("image", tag):
+        if not self.refresh and self.engine.exists("image", tag):
             return
         print(f"karas: building {tag}", file=sys.stderr)
-        cache_args = ["--no-cache"] if self.rebuild else []
+        cache_args = ["--no-cache"] if self.no_cache else []
         self.engine.run("build", *cache_args, "-t", tag, *args)
 
     def build_base(self):
@@ -376,7 +377,7 @@ def cmd_build(engine, args):
         selected_workloads = [(name, WORKLOADS_DIR / name) for name in matched]
     else:
         selected_workloads = [resolve_workload(args.workload)]
-    builder = Builder(engine, args.reinstall, args.rebuild)
+    builder = Builder(engine, args.reinstall, refresh=True, no_cache=args.rebuild)
     for harness in selected_harnesses:
         for workload, context in selected_workloads:
             for mode in MODES:
@@ -595,7 +596,7 @@ def build_parser():
                                metavar=metavar, help=help_text)
 
     build = commands.add_parser("build", parents=[engine_options],
-                                help="build workload/harness images and install harnesses")
+                                help="build or refresh workload/harness images and install harnesses")
     build.add_argument("harness", nargs="?", default="*", help="harness name or glob (default: *)")
     build.add_argument("workload", nargs="?", default=DEFAULT_WORKLOAD,
                        help=f"workload, NAME:PATH for a custom one, or * for all built-in (default: {DEFAULT_WORKLOAD})")

@@ -88,7 +88,7 @@ Extra arguments are taken from environment variables:
 - **`KARAS_ENGINE_ARGS`**: Forwarded to the engine's `run`, for options not listed above (e.g. `--memory 4g --cpus 2`).
 - **`KARAS_HARNESS_ARGS`**: Forwarded to the agent (e.g. `--model haiku`).
 
-Missing images and volumes of built-in workloads are built on demand. Custom workloads must be built first with [`build`](#build). Existing images are reused even if outdated; use `build --rm` to reinstall harnesses and `build --rmi` to rebuild images.
+Missing images and volumes of built-in workloads are built on demand. Custom workloads must be built first with [`build`](#build). Existing images are reused even if outdated; use `build` to refresh them, `build --rm` to reinstall harnesses, and `build --rmi` to rebuild images without cache.
 
 **Examples**:
 
@@ -187,6 +187,8 @@ Workloads can also live outside this repository; see [Build](#build).
 ```text
 karas build [--rm] [--rmi] [harness] [workload[:PATH]]
 ```
+
+Rebuilds the base, workload, and harness images (both `generic` and `amnesic` modes) for the selection, reusing the layer cache so unchanged steps are fast. Missing harness installs are installed.
 
 - **`harness`**: Harness name or glob pattern. Default: `*` (all harnesses).
 - **`workload`**: Workload name or glob pattern over built-in workloads. Default: `generic`. Use `name:PATH` to build a custom workload from the `Dockerfile` in `PATH`.
